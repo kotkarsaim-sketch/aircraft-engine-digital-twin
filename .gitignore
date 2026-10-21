@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Databases & local state
+*.db
+*.sqlite3
+
+# Logs & temp
+*.log
+digital_twin_project.zip
+fix_*.py
+add_*.py
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

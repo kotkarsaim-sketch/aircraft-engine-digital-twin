@@ -1,0 +1,11 @@
+The real NASA C-MAPSS FD001 files are already here:
+
+    train_FD001.txt   20,631 rows (verified against the canonical count)
+    test_FD001.txt    13,096 rows
+    RUL_FD001.txt     100 labels
+
+Source: public mirror github.com/bishals098/NASA-CMAPSS-dataset of the
+NASA Prognostics Data Repository (PCoE) C-MAPSS data set.
+
+If you delete them, train_models.py falls back to --demo synthetic data
+automatically, or download the originals from NASA and restore the files.

@@ -1,0 +1,29 @@
+{
+  "experiment": "c172p-fault-rul-v1",
+  "best_classifier": "random_forest",
+  "best_rul": "gradient_boosting",
+  "sensor_keys": [
+    "rpm",
+    "egt",
+    "cht",
+    "oil_temp",
+    "oil_press",
+    "fuel_flow",
+    "manifold"
+  ],
+  "window": 15,
+  "rul_max": 1.0,
+  "fault_types": [
+    "cht",
+    "egt",
+    "ff",
+    "mp",
+    "multi",
+    "none",
+    "oil",
+    "oiltemp"
+  ],
+  "trained_at": "2026-09-01 01:25:31",
+  "rul_simple": true,
+  "rul_feature_count": 8
+}

@@ -1,0 +1,176 @@
+# Cessna 172P Digital Twin — ML Prediction Research Configuration
+# All hyperparameters, data splits, and experiment settings in one place.
+# Ensures full reproducibility across runs.
+
+experiment:
+  name: "c172p-fault-rul-v1"
+  description: "Fault classification and RUL prediction for Cessna 172P engine digital twin"
+  seed: 42
+  output_dir: "experiments"
+
+data:
+  source: "simulation"  # or "cmapss" for NASA C-MAPSS
+  n_samples_per_fault_severity: 8
+  n_healthy_seeds: 64
+  fault_types: ["none", "egt", "cht", "oil", "oiltemp", "ff", "mp", "multi"]
+  severities: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+  duration_s: 300
+  tick_hz: 1.0
+  healthy_baseline:
+    rpm: 2320
+    egt: 1290
+    cht: 372
+    oil_temp: 183
+    oil_press: 61
+    fuel_flow: 8.8
+    manifold: 27.3
+  sensor_ranges:
+    rpm: 120
+    egt: 60
+    cht: 30
+    oil_temp: 8
+    oil_press: 3
+    fuel_flow: 0.8
+    manifold: 0.6
+  train_split: 0.7
+  val_split: 0.15
+  test_split: 0.15
+  stratify_by: "fault"
+  # Time-series aware: split by seed (not by row) to avoid leakage
+  split_by: "seed"
+
+features:
+  sensor_keys: ["rpm", "egt", "cht", "oil_temp", "oil_press", "fuel_flow", "manifold"]
+  # Rolling window features for RUL
+  rul_window_sizes: [5, 10, 15, 20, 30]
+  default_rul_window: 15
+  # Derived features
+  add_deviation_features: true
+  add_cross_sensor_features: true
+  add_temporal_features: true
+  # Scaling
+  scaler: "standard"  # standard, minmax, robust
+
+models:
+  # Fault Classification
+  classifier:
+    models:
+      - name: "random_forest"
+        type: "sklearn.ensemble.RandomForestClassifier"
+        params:
+          n_estimators: 200
+          max_depth: 15
+          min_samples_split: 5
+          min_samples_leaf: 2
+          class_weight: "balanced_subsample"
+          random_state: 42
+          n_jobs: -1
+      - name: "gradient_boosting"
+        type: "sklearn.ensemble.GradientBoostingClassifier"
+        params:
+          n_estimators: 200
+          max_depth: 6
+          learning_rate: 0.1
+          subsample: 0.9
+          random_state: 42
+
+  # RUL Regression
+  rul:
+    models:
+      - name: "gradient_boosting"
+        type: "sklearn.ensemble.GradientBoostingRegressor"
+        params:
+          n_estimators: 200
+          learning_rate: 0.05
+          max_depth: 4
+          subsample: 0.9
+          random_state: 42
+      - name: "random_forest"
+        type: "sklearn.ensemble.RandomForestRegressor"
+        params:
+          n_estimators: 200
+          max_depth: 12
+          min_samples_split: 5
+          min_samples_leaf: 2
+          random_state: 42
+          n_jobs: -1
+      - name: "ridge"
+        type: "sklearn.linear_model.Ridge"
+        params:
+          alpha: 1.0
+          random_state: 42
+
+training:
+  cv_folds: 3
+  cv_strategy: "stratified_group_kfold"  # groups by seed
+  scoring:
+    classifier: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovr"]
+    rul: ["neg_mean_absolute_error", "neg_root_mean_squared_error", "r2"]
+  early_stopping: true
+  n_iter_search: 10  # for randomized search if enabled
+
+evaluation:
+  test_metrics_classifier:
+    - "accuracy"
+    - "precision_macro"
+    - "recall_macro"
+    - "f1_macro"
+    - "f1_weighted"
+    - "roc_auc_ovr"
+    - "balanced_accuracy"
+    - "cohen_kappa"
+    - "per_class_precision"
+    - "per_class_recall"
+    - "per_class_f1"
+  test_metrics_rul:
+    - "mae"
+    - "rmse"
+    - "r2"
+    - "phm08_score"
+    - "mape"
+    - "coverage_90"  # prediction interval coverage
+  calibration:
+    n_bins: 10
+    strategy: "uniform"
+  statistical_tests:
+    mcnemar: true
+    paired_ttest: true
+    alpha: 0.05
+
+ablation:
+  sensor_subsets:
+    - name: "all"
+      sensors: ["rpm", "egt", "cht", "oil_temp", "oil_press", "fuel_flow", "manifold"]
+    - name: "critical_only"
+      sensors: ["egt", "cht", "oil_temp", "oil_press"]
+    - name: "no_rpm"
+      sensors: ["egt", "cht", "oil_temp", "oil_press", "fuel_flow", "manifold"]
+    - name: "thermal_only"
+      sensors: ["egt", "cht", "oil_temp"]
+  window_sizes: [5, 10, 15, 20, 30]
+  severity_thresholds: [0.2, 0.4, 0.6, 0.8]
+
+model_card:
+  intended_use: "Real-time fault classification and RUL estimation for Cessna 172P engine monitoring in simulation and educational contexts"
+  limitations:
+    - "Trained on simulated data only; not validated on real engine data"
+    - "Assumes sensor noise characteristics match simulation"
+    - "RUL predictions valid only within simulated degradation regimes"
+    - "Multi-fault interactions beyond training combinations not guaranteed"
+    - "No uncertainty quantification in current version"
+  ethical_considerations:
+    - "Not for use in certified aviation systems"
+    - "Educational/research use only"
+    - "No safety-critical decisions should rely on this model"
+  training_data:
+    source: "Procedural Cessna 172P simulation with physics-informed fault models"
+    size: "~50k samples"
+    faults_covered: 8
+    severity_range: "0.0-1.0"
+  performance_summary: "To be filled after evaluation"
+
+serving:
+  host: "0.0.0.0"
+  port: 5000
+  window_size: 15
+  max_history: 1000

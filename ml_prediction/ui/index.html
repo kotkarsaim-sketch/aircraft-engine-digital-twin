@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>C172P ML Prediction Playground</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+<style>
+  :root{--bg:#0b1220;--panel:#111a2c;--edge:#22304a;--txt:#dbe4f0;--dim:#8aa0b4;
+        --green:#39d353;--amber:#e3b341;--red:#f85149;--blue:#58a6ff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",system-ui,Arial,sans-serif;line-height:1.5}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--edge)}
+  header h1{font-size:18px;font-weight:700}
+  header .sub{color:var(--dim);font-size:12px;margin-top:2px}
+  .status-pill{display:inline-block;padding:4px 12px;border-radius:14px;font-weight:700;font-size:12px}
+  .pill-ok{background:rgba(57,211,83,.15);color:var(--green);border:1px solid var(--green)}
+  .pill-err{background:rgba(248,81,73,.2);color:var(--red);border:1px solid var(--red)}
+  main{display:grid;gap:16px;padding:16px;grid-template-columns:1fr 1fr}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:18px}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);margin-bottom:14px}
+  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 2px}
+  .slider-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .slider-row input[type=range]{flex:1;accent-color:var(--blue)}
+  .slider-row .val{width:64px;text-align:right;font-family:Consolas,monospace;color:var(--blue);font-weight:700}
+  select,button{width:100%;padding:9px;border-radius:6px;border:1px solid var(--edge);background:#0d1524;color:var(--txt);font-size:13px;margin-bottom:8px;cursor:pointer}
+  button{background:var(--blue);border-color:var(--blue);font-weight:700}
+  button:hover{filter:brightness(1.1)}
+  button.warn{background:var(--amber);border-color:var(--amber);color:#0b1220}
+  button.danger{background:var(--red);border-color:var(--red)}
+  .metric{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #1b2740;font-size:13px}
+  .metric span:first-child{color:var(--dim)}
+  .metric .big{font-family:Consolas,monospace;font-size:22px;font-weight:700;color:var(--blue)}
+  .fault-badge{display:inline-block;padding:6px 14px;border-radius:14px;font-weight:700;font-size:15px;margin:6px 0}
+  .fault-none{background:rgba(57,211,83,.15);color:var(--green);border:1px solid var(--green)}
+  .fault-active{background:rgba(227,179,65,.15);color:var(--amber);border:1px solid var(--amber)}
+  .fault-critical{background:rgba(248,81,73,.2);color:var(--red);border:1px solid var(--red)}
+  .prob-grid{display:grid;gap:6px}
+  .prob-row{display:flex;align-items:center;gap:8px;font-size:12px}
+  .prob-row .p-label{width:80px;color:var(--dim)}
+  .prob-row .p-track{flex:1;height:10px;background:#0a0f1a;border-radius:5px;overflow:hidden}
+  .prob-row .p-fill{height:100%;background:var(--blue);border-radius:5px;transition:width 0.3s}
+  .prob-row .p-val{width:46px;text-align:right;font-family:Consolas,monospace}
+  .sim-row{display:flex;gap:10px;margin-bottom:12px}
+  .sim-row#gauges{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  @media(max-width:700px){.sim-row#gauges{grid-template-columns:repeat(2,1fr)}}
+  .gauge-mini{background:#0b1220;border:1px solid var(--edge);border-radius:8px;padding:10px;text-align:center}
+  .gauge-mini .g-name{color:var(--dim);font-size:10px;letter-spacing:.5px;text-transform:uppercase}
+  .gauge-mini .g-val{font-size:18px;font-weight:700;font-family:Consolas,monospace;margin-top:4px}
+  .hint{color:var(--dim);font-size:11px;margin-top:12px;line-height:1.6}
+  .hint code{color:var(--blue);background:#0d1524;padding:2px 4px;border-radius:3px}
+  .engine-state{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+  .engine-state .led{width:12px;height:12px;border-radius:50%;background:#22304a;border:1px solid var(--edge)}
+  .engine-state .led.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .engine-state .led.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .engine-state .led.crit{background:var(--red);box-shadow:0 0 8px var(--red)}
+  .rul-bar{height:12px;background:#0a0f1a;border-radius:6px;overflow:hidden;margin:8px 0}
+  .rul-bar .fill{height:100%;background:linear-gradient(90deg,var(--red),var(--amber),var(--green));transition:width 0.5s}
+  .rul-bar .marker{position:absolute;margin-top:-4px;width:2px;height:20px;background:var(--txt);opacity:0.7}
+  .footer{padding:12px;text-align:center;color:var(--dim);font-size:11px;border-top:1px solid var(--edge)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><i class="fa-solid fa-microchip" style="color:var(--blue);margin-right:8px"></i>C172P ML PREDICTION PLAYGROUND</h1>
+    <div class="sub">Fault Classification (RandomForest) + RUL Estimation (GradientBoosting) — trained on simulated Cessna 172P data</div>
+  </div>
+  <div><span id="health-pill" class="status-pill pill-err">connecting…</span></div>
+</header>
+
+<main>
+  <!-- Manual Controls -->
+  <section class="panel">
+    <h2><i class="fa-solid fa-sliders" style="margin-right:6px"></i>Manual Engine Controls</h2>
+    <div class="engine-state">
+      <span class="led" id="led-state"></span>
+      <span id="engine-mode">NORMAL</span>
+    </div>
+
+    <div class="sim-row" id="gauges">
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-gauge-high"></i> RPM</div><div class="g-val" id="v-rpm">2320</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-fire"></i> EGT °F</div><div class="g-val" id="v-egt">1290</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-temperature-arrow-up"></i> CHT °F</div><div class="g-val" id="v-cht">372</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-temperature-half"></i> Oil Temp °F</div><div class="g-val" id="v-oil_temp">183</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-oil-can"></i> Oil Press PSI</div><div class="g-val" id="v-oil_press">61</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-gas-pump"></i> Fuel Flow GPH</div><div class="g-val" id="v-fuel_flow">8.8</div></div>
+      <div class="gauge-mini"><div class="g-name"><i class="fa-solid fa-compress"></i> Manifold inHg</div><div class="g-val" id="v-manifold">27.3</div></div>
+    </div>
+
+    <label>Fault Mode</label>
+    <select id="fault-select">
+      <option value="none">NORMAL</option>
+      <option value="egt">HIGH EGT</option>
+      <option value="cht">HIGH CHT</option>
+      <option value="oil">LOW OIL PRESSURE</option>
+      <option value="oiltemp">HIGH OIL TEMP</option>
+      <option value="ff">FUEL FLOW FAULT</option>
+      <option value="mp">MANIFOLD PRESSURE FAULT</option>
+      <option value="multi">MULTIPLE FAULT</option>
+    </select>
+
+    <label>Fault Severity</label>
+    <div class="slider-row">
+      <input type="range" id="severity" min="0" max="100" value="60"/>
+      <span class="val" id="sev-val">60%</span>
+    </div>
+
+    <label>Custom EGT Override (°F)</label>
+    <div class="slider-row">
+      <input type="range" id="egt-ovr" min="1200" max="1900" value="1290"/>
+      <span class="val" id="egt-ovr-val">1290</span>
+    </div>
+
+    <label>Simulation Speed</label>
+    <select id="sim-speed">
+      <option value="1">1× (realtime)</option>
+      <option value="5">5×</option>
+      <option value="10">10×</option>
+    </select>
+
+    <button id="btn-reset" class="danger"><i class="fa-solid fa-rotate-left" style="margin-right:6px"></i>RESET SEQUENCE</button>
+    <button id="btn-auto" class="warn"><i class="fa-solid fa-play" style="margin-right:6px"></i>AUTO-PREDICT (continuous)</button>
+
+    <div class="hint">
+      Drag sliders to manually set engine conditions, or pick a fault + severity to
+      simulate it. Click <code>PREDICT</code> (or enable auto) to run the ML models.
+      The classifier returns the most likely fault; the regressor returns predicted
+      RUL (hours). These are genuine outputs of models trained on our Cessna 172P
+      simulator with 8 fault types × 5 severities × 8 seeds = 320+ scenarios.
+    </div>
+  </section>
+
+  <!-- Prediction Output -->
+  <section class="panel">
+    <h2><i class="fa-solid fa-brain" style="margin-right:6px"></i>AI Prediction Results</h2>
+    <div id="fault-badge" class="fault-badge fault-none">NORMAL</div>
+    <div style="font-size:11px;color:var(--dim)" id="confidence-line">confidence: &ndash;</div>
+
+    <div style="margin:16px 0">
+      <div class="metric"><span>Predicted RUL</span>
+        <span class="big" id="rul-out">&ndash; h</span></div>
+      <div class="metric"><span>Status</span><span id="status-out">&ndash;</span></div>
+      <div class="metric"><span>Elapsed</span><span id="elapsed-out">&ndash;</span></div>
+      <div class="metric"><span>Window</span><span id="window-out">&ndash; / 15</span></div>
+    </div>
+
+    <div class="rul-bar" id="rul-bar">
+      <div class="fill" id="rul-fill" style="width:0%"></div>
+    </div>
+
+    <h2 style="margin:16px 0 8px"><i class="fa-solid fa-chart-column" style="margin-right:6px"></i>Fault Probabilities</h2>
+    <div class="prob-grid" id="prob-grid"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  Research-grade ML pipeline — scikit-learn models trained on physics-informed Cessna 172P simulation data.
+  Not for use in certified aviation systems. Educational/research use only.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

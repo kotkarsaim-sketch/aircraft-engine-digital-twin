@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Aircraft Engine Digital Twin — Cessna 172P</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2c; --edge:#22304a; --txt:#dbe4f0;
+    --dim:#8aa0b4; --green:#39d353; --amber:#e3b341; --red:#f85149;
+    --blue:#58a6ff; --accent:#2b6cb0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{background:var(--bg); color:var(--txt);
+       font-family:"Segoe UI",system-ui,Arial,sans-serif; min-height:100vh}
+
+  header{display:flex; justify-content:space-between; align-items:center;
+         padding:12px 18px; border-bottom:1px solid var(--edge); position:sticky; top:0; background:var(--bg); z-index:10}
+  header h1{font-size:18px; letter-spacing:.5px}
+  header .sub{color:var(--dim); font-size:12px}
+  .conn{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--dim)}
+  .dot{width:10px; height:10px; border-radius:50%; background:#555}
+  .dot.on{background:var(--green); box-shadow:0 0 8px var(--green)}
+  .dot.err{background:var(--red); box-shadow:0 0 8px var(--red)}
+
+  main{display:grid; gap:14px; padding:14px;
+       grid-template-columns:1fr 1fr;
+       grid-template-rows:auto auto 1fr;
+       grid-template-areas:
+         "gauges twin"
+         "controls twin"
+         "charts charts";}
+  @media(max-width:1100px){ main{grid-template-columns:1fr; grid-template-areas:"gauges""twin""controls""charts"} }
+
+  .panel{background:var(--panel); border:1px solid var(--edge);
+         border-radius:10px; padding:14px}
+  .panel h2{font-size:13px; text-transform:uppercase; letter-spacing:1.5px;
+            color:var(--dim); margin-bottom:12px}
+
+  #gauges{grid-area:gauges; display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px}
+  .gauge svg{width:100%; height:auto; display:block}
+  .gauge .g-name{fill:var(--dim); font-size:9.5px; letter-spacing:.6px}
+  .gauge .g-val{fill:var(--txt); font-size:15px; font-weight:600; font-family:Consolas,monospace}
+  .gauge .g-unit{fill:var(--dim); font-size:8.5px}
+  .gauge .tick{stroke:#33445f}
+  .gauge .tick-label{fill:#6d8098; font-size:7.5px}
+  .gauge .needle{transition:transform .35s cubic-bezier(.3,.9,.4,1)}
+  .gauge.over .needle path{fill:var(--red)}
+
+  .twin-panel{grid-area:twin; display:flex; flex-direction:column; gap:10px}
+  #scene{position:relative; width:100%; aspect-ratio:16/10; min-height:350px;
+         border-radius:8px; overflow:hidden; background:
+         radial-gradient(120% 90% at 50% 20%,#152238 0%,#0b1220 70%);
+         border:1px solid var(--edge); border-radius:8px}
+  #fallback2d{display:none; width:100%; height:100%; align-items:center; justify-content:center}
+  .twin-header{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px}
+  .render-badge{font-size:11px; border:1px solid var(--edge); border-radius:4px; padding:2px 8px; color:var(--dim)}
+
+  .controls-panel{grid-area:controls; display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  @media(max-width:900px){ .controls-panel{grid-template-columns:1fr} }
+
+  .fault-panel{background:var(--panel); border:1px solid var(--edge); border-radius:10px; padding:14px}
+  .fault-panel h2{font-size:13px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); margin-bottom:12px}
+  .fault-btn{display:block; width:100%; padding:8px 10px; margin-bottom:6px; border:1px solid var(--edge); border-radius:6px;
+            background:#0d1524; color:var(--txt); font-size:12px; font-weight:600; cursor:pointer; text-align:left;
+            transition:background .15s, border-color .15s}
+  .fault-btn:hover{background:#16203a; border-color:var(--blue)}
+  .fault-btn.active{background:rgba(88,166,255,.15); border-color:var(--blue); color:var(--blue)}
+  .fault-btn.reset-btn{background:rgba(248,81,73,.1); border-color:var(--red); color:var(--red)}
+  .fault-btn.reset-btn:hover{background:rgba(248,81,73,.2)}
+  .sev-row{margin:12px 0 4px; font-size:12px; color:var(--dim)}
+  .sev-row input[type=range]{width:100%; accent-color:var(--blue); margin:4px 0}
+  .sev-val{text-align:right; font-family:Consolas,monospace; font-size:14px; color:var(--blue); font-weight:700}
+  .active-faults{margin-top:10px; padding-top:8px; border-top:1px solid var(--edge); font-size:11px}
+
+  .ml-panel{background:var(--panel); border:1px solid var(--edge); border-radius:10px; padding:14px}
+  .ml-panel h2{font-size:13px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); margin-bottom:12px}
+  .ml-badge{display:inline-block; padding:4px 12px; border-radius:14px; font-weight:700; font-size:13px; margin-bottom:8px}
+  .ml-none{background:rgba(57,211,83,.15); color:var(--green); border:1px solid var(--green)}
+  .ml-fault{background:rgba(227,179,65,.15); color:var(--amber); border:1px solid var(--amber)}
+  .ml-crit{background:rgba(248,81,73,.2); color:var(--red); border:1px solid var(--red)}
+  .ml-metric{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #1b2740; font-size:12px}
+  .ml-metric span:first-child{color:var(--dim)}
+  .ml-metric .big{font-family:Consolas,monospace; font-size:20px; font-weight:700; color:var(--blue)}
+  .ml-bar{height:10px; background:#0a0f1a; border-radius:5px; overflow:hidden; margin:8px 0}
+  .ml-bar .fill{height:100%; background:linear-gradient(90deg,var(--red),var(--amber),var(--green)); transition:width .4s}
+  .prob-grid{display:grid; gap:5px; margin-top:8px}
+  .prob-row{display:flex; align-items:center; gap:8px; font-size:11px}
+  .prob-row .label{width:80px; color:var(--dim); font-family:Consolas,monospace}
+  .prob-row .track{flex:1; height:8px; background:#0a0f1a; border-radius:4px; overflow:hidden}
+  .prob-row .fill{height:100%; background:var(--blue); border-radius:4px; transition:width .3s}
+  .prob-row .val{width:40px; text-align:right; font-family:Consolas,monospace}
+
+  .charts-section{grid-area:charts; display:grid; gap:14px; grid-template-columns:1fr 1fr}
+  @media(max-width:900px){ .charts-section{grid-template-columns:1fr} }
+  .chart-box{background:var(--panel); border:1px solid var(--edge); border-radius:10px; padding:14px}
+  .chart-box canvas{width:100%!important; height:180px!important}
+  .chart-box h3{font-size:12px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); margin-bottom:8px}
+
+  footer{padding:10px 18px; color:var(--dim); font-size:11px; border-top:1px solid var(--edge); line-height:1.5}
+  footer code{color:var(--blue)}
+  .disclaimer{margin-top:6px; font-size:10px; color:#556677; font-style:italic; max-width:900px}
+
+  .badge{display:inline-block; padding:4px 12px; border-radius:14px; font-weight:700; letter-spacing:1.2px; font-size:13px}
+  .st-NOMINAL{background:rgba(57,211,83,.15); color:var(--green); border:1px solid var(--green)}
+  .st-WARNING{background:rgba(227,179,65,.15); color:var(--amber); border:1px solid var(--amber)}
+  .st-CRITICAL{background:rgba(248,81,73,.2); color:var(--red); border:1px solid var(--red); animation:blink .8s infinite}
+  .st-STANDBY{background:rgba(138,160,180,.12); color:var(--dim); border:1px solid var(--dim)}
+  @keyframes blink{50%{opacity:.25}}
+
+  .gauge svg{width:100%; height:auto; display:block}
+  .gauge .g-name{fill:var(--dim); font-size:9.5px; letter-spacing:.6px}
+  .gauge .g-val{fill:var(--txt); font-size:15px; font-weight:600; font-family:Consolas,monospace}
+  .gauge .g-unit{fill:var(--dim); font-size:8.5px}
+  .gauge .tick{stroke:#33445f}
+  .gauge .tick-label{fill:#6d8098; font-size:7.5px}
+  .gauge .needle{transition:transform .35s cubic-bezier(.3,.9,.4,1)}
+  .gauge.over .needle path{fill:var(--red)}
+  .gauge .g-name{fill:var(--dim); font-size:9.5px; letter-spacing:.6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1><i class="fa-solid fa-plane-departure" style="color:var(--blue);margin-right:8px"></i>AIRCRAFT ENGINE DIGITAL TWIN</h1>
+    <div class="sub">Cessna 172P · Real-time telemetry · AI anomaly detection · RUL prediction</div>
+  </div>
+  <div class="conn">
+    <span id="ws-dot" class="dot"></span><span id="ws-text">connecting…</span>
+    <span id="status-badge" class="badge st-STANDBY" style="margin-left:12px">STANDBY</span>
+  </div>
+</header>
+
+<!-- ANOMALY BANNER -->
+<div id="banner" style="display:none;background:rgba(248,81,73,.12);border:1px solid var(--red);padding:8px 18px;font-size:13px;color:var(--red);font-weight:700;text-align:center;letter-spacing:1px" class="">
+  <i class="fa-solid fa-triangle-exclamation" style="margin-right:8px"></i>ANOMALY DETECTED — Review sensor readings
+</div>
+
+<main>
+  <!-- GAUGES -->
+  <section class="panel" id="gauges"></section>
+
+  <!-- 3D TWIN MODEL -->
+  <section class="twin-panel">
+    <div class="twin-header">
+      <h2><i class="fa-solid fa-plane" style="color:var(--blue);margin-right:6px"></i>Digital Twin Model</h2>
+      <span id="render-mode" class="render-badge">init</span>
+    </div>
+    <div id="scene">
+      <div id="fallback2d">
+        <svg viewBox="0 0 320 240" width="92%" height="92%">
+          <ellipse cx="160" cy="120" rx="26" ry="86" fill="#e8ecf1"/>
+          <rect x="60" y="108" width="200" height="24" rx="10" fill="#2b6cb0"/>
+          <rect x="128" y="30" width="64" height="16" rx="6" fill="#2b6cb0"/>
+          <circle id="fb-engine" cx="160" cy="196" r="17" fill="#1e66ff"/>
+          <line id="fb-prop" x1="160" y1="172" x2="160" y2="222"
+                stroke="#aab7c8" stroke-width="4" stroke-linecap="round"/>
+          <text x="160" y="238" fill="#8aa0b4" font-size="11" text-anchor="middle">2D fallback view</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTROLS: FAULT INJECTION + ML PREDICTION -->
+  <section class="controls-panel">
+    <!-- FAULT INJECTION -->
+    <section class="fault-panel">
+      <h2><i class="fa-solid fa-triangle-exclamation" style="color:var(--amber);margin-right:6px"></i>Fault Injection</h2>
+      <button class="fault-btn" data-fault="normal"><i class="fa-solid fa-circle-check" style="color:var(--green);margin-right:8px"></i>NORMAL</button>
+      <button class="fault-btn" data-fault="egt"><i class="fa-solid fa-fire" style="color:var(--amber);margin-right:8px"></i>HIGH EGT</button>
+      <button class="fault-btn" data-fault="cht"><i class="fa-solid fa-temperature-arrow-up" style="color:var(--amber);margin-right:8px"></i>HIGH CHT</button>
+      <button class="fault-btn" data-fault="oil"><i class="fa-solid fa-oil-can" style="color:var(--red);margin-right:8px"></i>LOW OIL PRESSURE</button>
+      <button class="fault-btn" data-fault="oiltemp"><i class="fa-solid fa-temperature-high" style="color:var(--amber);margin-right:8px"></i>HIGH OIL TEMP</button>
+      <button class="fault-btn" data-fault="ff"><i class="fa-solid fa-gas-pump" style="color:var(--blue);margin-right:8px"></i>FUEL FLOW FAULT</button>
+      <button class="fault-btn" data-fault="mp"><i class="fa-solid fa-gauge" style="color:var(--blue);margin-right:8px"></i>MANIFOLD PRESSURE</button>
+      <button class="fault-btn" data-fault="multi"><i class="fa-solid fa-bolt" style="color:var(--red);margin-right:8px"></i>MULTIPLE FAULT</button>
+      <button class="fault-btn reset-btn" data-fault="reset"><i class="fa-solid fa-rotate-left" style="margin-right:8px"></i>RESET ENGINE</button>
+
+      <div class="sev-row">
+        Fault Severity
+        <input type="range" id="severity-slider" min="10" max="100" value="60" step="5"/>
+      </div>
+      <div class="sev-val" id="severity-val">60%</div>
+
+      <div class="active-faults" id="active-faults">
+        <div style="color:var(--dim); font-size:11px">No active faults</div>
+      </div>
+    </section>
+
+    <!-- ML PREDICTION PANEL -->
+    <section class="ml-panel">
+      <h2><i class="fa-solid fa-brain" style="color:var(--blue);margin-right:6px"></i>AI Prediction Engine</h2>
+      <div id="ml-badge" class="ml-badge ml-none">NORMAL</div>
+      
+      <div class="ml-metric"><span>Predicted RUL</span><span class="big" id="ml-rul">– h</span></div>
+      <div class="ml-bar"><div class="fill" id="ml-rul-bar" style="width:0%"></div></div>
+      
+      <div class="ml-metric"><span>Confidence</span><span id="ml-conf">–</span></div>
+      <div class="ml-metric"><span>Mode</span><span id="ml-mode">–</span></div>
+      <div class="ml-metric"><span>Window</span><span id="ml-window">filling…</span></div>
+
+      <div class="prob-grid" id="prob-grid"></div>
+      
+      <div id="mitigation-panel" style="display:none; margin-top:14px; padding:10px; border:1px dashed var(--green); border-radius:6px; background:rgba(57,211,83,0.05); text-align:center">
+        <div style="font-size:11px; color:var(--green); margin-bottom:6px; font-weight:bold" id="mitigation-text">AI recommends: THROTTLE DOWN</div>
+        <button id="btn-mitigate" style="background:var(--green); color:#000; border:none; padding:6px 16px; border-radius:4px; font-weight:bold; cursor:pointer; font-size:11px"><i class="fa-solid fa-shield-halved" style="margin-right:6px"></i>EXECUTE ACTION</button>
+      </div>
+
+      <div style="margin-top:12px; font-size:11px; color:var(--dim)">
+        <strong>Sensor Mapping:</strong><br>
+        rpm→rpm · egt_degf→egt · cht_degf→cht · oil_temp_f→oil_temp · oil_psi→oil_press · ff_gph→fuel_flow · mp_inhg→manifold
+      </div>
+    </section>
+  </section>
+
+  <!-- ENGINE HEALTH STATUS -->
+  <section class="charts-section" style="grid-area:charts; grid-row:3">
+    <section class="chart-box">
+      <h3><i class="fa-solid fa-heart-pulse" style="color:var(--green);margin-right:6px"></i>Engine Health</h3>
+      <div class="ml-metric"><span>RUL (fused)</span><span class="big" id="rul-value">--</span></div>
+      <div class="ml-metric"><span>Health Index</span><span id="health-val">--</span></div>
+      <div class="ml-bar"><div class="fill" id="health-fill" style="width:100%"></div></div>
+      <div class="ml-metric"><span>Anomaly Score</span><span id="score-val" style="font-family:Consolas,monospace">--</span></div>
+      <div class="ml-metric"><span>Threshold</span><span id="thr-val" style="font-family:Consolas,monospace">--</span></div>
+      <div class="ml-metric"><span>Data Mode</span><span id="mode-val">--</span></div>
+      <div class="ml-metric"><span>Active Faults</span><span id="faults-val">none</span></div>
+      <div class="ml-metric"><span>Fault Duration</span><span id="duration-val">--</span></div>
+      <div class="ml-metric"><span>RUL (LSTM / synth)</span><span id="rul-split">- / -</span></div>
+      <div style="font-size:10px;color:var(--dim);margin-top:4px" id="rul-detail">Remaining Useful Life (synthetic degradation model)</div>
+      <div id="explain-panel" style="margin-top:10px"></div>
+    </section>
+    <section class="chart-box" style="max-height:260px; overflow-y:auto">
+      <h3><i class="fa-solid fa-list-check" style="color:var(--dim);margin-right:6px"></i>Event Log</h3>
+      <ul id="log" style="list-style:none;font-size:11px;font-family:Consolas,monospace;color:var(--dim)"></ul>
+    </section>
+  </section>
+
+  <!-- HISTORICAL CHARTS -->
+  <section class="charts-section">
+    <section class="chart-box">
+      <h3><i class="fa-solid fa-chart-line" style="color:var(--blue);margin-right:6px"></i>Sensor History</h3>
+      <canvas id="chart-sensors"></canvas>
+    </section>
+    <section class="chart-box">
+      <h3><i class="fa-solid fa-chart-pie" style="color:var(--amber);margin-right:6px"></i>AI Analytics</h3>
+      <canvas id="chart-ai"></canvas>
+    </section>
+    <section class="chart-box">
+      <h3><i class="fa-solid fa-compass-drafting" style="color:var(--green);margin-right:6px"></i>2D Health Landscape (PCA)</h3>
+      <canvas id="chart-landscape"></canvas>
+    </section>
+  </section>
+</main>
+
+<footer>
+  Backend: <code>backend.py</code> (WebSocket :8765) · ML API: <code>predict_server.py</code> (HTTP :5000)
+  <div class="disclaimer">
+    RESEARCH PROTOTYPE — Educational/synthetic digital twin for demonstration only. NOT certified for operational use.
+    Synthetic data, anomaly scores, and RUL predictions are from models trained on NASA C-MAPSS data.
+    Must NOT be relied upon for real maintenance decisions.
+  </div>
+</footer>
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<!-- Detailed Cessna 172P procedural model -->
+<script src="cessna3d.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

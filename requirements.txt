@@ -1,0 +1,14 @@
+# Aircraft Engine Digital Twin - Python dependencies
+# Install:  pip install -r requirements.txt
+# Verified with: numpy 2.5.2, pandas 3.0.5, scikit-learn 1.9.0,
+#                 websockets (latest), tensorflow-cpu 2.21 (Python 3.12)
+#
+# On laptops, the CPU-only TensorFlow build is smaller and sufficient:
+numpy>=1.26
+pandas>=2.0
+matplotlib>=3.7          # evaluation plots (train_models.py --eval-only)
+scikit-learn>=1.4        # imported by Keras 3 wrappers at load time
+websockets>=10.4
+tensorflow-cpu>=2.16     # 2.16+ supports Python 3.12 and numpy 2.x
+# If tensorflow-cpu is unavailable for your Python version, use instead:
+#   pip install tensorflow
