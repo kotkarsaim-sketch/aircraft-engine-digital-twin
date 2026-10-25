@@ -303,6 +303,7 @@ function sendCommand(cmd) {
     wsRef.send(JSON.stringify(cmd));
   }
 }
+const sendWsCmd = sendCommand;
 
 function initFaultControls() {
   const slider = $("severity-slider");
@@ -727,6 +728,7 @@ function applyState(st) {
   updateActiveFaults(faults);
   updateExplainPanel(st.explain, st.is_anomaly);
   updateMLPanel(st);
+  updateMLPlayground(st);
   SensorHistory.push(st);
 
   if (prevState.mode !== st.mode) {
@@ -776,6 +778,267 @@ function scheduleReconnect() {
   setTimeout(connectWS, delay);
 }
 
+
+/* =========================================================================
+   ML PLAYGROUND & UNIFIED VIEW CONTROLLER
+   ========================================================================= */
+function updateMLPlayground(st) {
+  const s = st.sensors || {};
+  
+  // 1. Update 7 Mini Digital Cards (Playground Tab)
+  if ($("pg-v-rpm")) $("pg-v-rpm").textContent = Math.round(s.rpm ?? 0);
+  if ($("pg-v-egt")) $("pg-v-egt").textContent = Math.round(s.egt_degf ?? 0);
+  if ($("pg-v-cht")) $("pg-v-cht").textContent = Math.round(s.cht_degf ?? 0);
+  if ($("pg-v-oil_temp")) $("pg-v-oil_temp").textContent = Math.round(s.oil_temp_f ?? 0);
+  if ($("pg-v-oil_press")) $("pg-v-oil_press").textContent = (s.oil_psi ?? 0).toFixed(1);
+  if ($("pg-v-fuel_flow")) $("pg-v-fuel_flow").textContent = (s.ff_gph ?? 0).toFixed(1);
+  if ($("pg-v-manifold")) $("pg-v-manifold").textContent = (s.mp_inhg ?? 0).toFixed(1);
+
+  const fault = st.ml_fault || "none";
+  const confVal = st.ml_confidence ?? 0;
+  const rulVal = st.ml_rul_h;
+  const isHealthy = fault === "none";
+  const isCrit = ["multi"].includes(fault) || (rulVal != null && rulVal < 0.1);
+
+  // 2. Engine Mode & LED (Playground Tab)
+  const led = $("pg-led-state");
+  const modeText = $("pg-engine-mode");
+  if (led && modeText) {
+    if (isHealthy) {
+      led.className = "led on";
+      modeText.textContent = "NORMAL";
+    } else if (isCrit) {
+      led.className = "led crit";
+      modeText.textContent = fault.toUpperCase() + " (CRITICAL)";
+    } else {
+      led.className = "led warn";
+      modeText.textContent = fault.toUpperCase();
+    }
+  }
+
+  // 3. AI Prediction Results (Playground Tab)
+  const pgBadge = $("pg-fault-badge");
+  if (pgBadge) {
+    pgBadge.textContent = fault.toUpperCase();
+    pgBadge.className = "fault-badge-large " +
+      (isHealthy ? "fault-none" : isCrit ? "fault-critical" : "fault-active");
+  }
+
+  if ($("pg-confidence-line")) {
+    $("pg-confidence-line").textContent = "confidence: " + (confVal * 100).toFixed(0) + "%";
+  }
+
+  if ($("pg-rul-out")) {
+    $("pg-rul-out").textContent = rulVal != null ? rulVal.toFixed(2) + " h" : "buffering...";
+  }
+
+  if ($("pg-status-out")) {
+    $("pg-status-out").textContent = rulVal != null
+      ? (rulVal > 0.3 ? "HEALTHY" : rulVal > 0.1 ? "WARNING" : "CRITICAL")
+      : "collecting window";
+    $("pg-status-out").style.color = rulVal != null
+      ? (rulVal > 0.3 ? "var(--green)" : rulVal > 0.1 ? "var(--amber)" : "var(--red)")
+      : "var(--dim)";
+  }
+
+  if ($("pg-elapsed-out")) {
+    $("pg-elapsed-out").textContent = (st.t_s ? Math.round(st.t_s) : "0") + " s";
+  }
+
+  if ($("pg-window-out")) {
+    $("pg-window-out").textContent = st.ml_window_filled ? "15 / 15 (Ready)" : "filling...";
+  }
+
+  if ($("pg-rul-fill")) {
+    const pct = rulVal != null ? clamp((rulVal / 0.5) * 100, 0, 100) : 0;
+    $("pg-rul-fill").style.width = pct + "%";
+  }
+
+  // 4. Fault Probabilities Grid (Playground Tab)
+  const pgGrid = $("pg-prob-grid");
+  if (pgGrid && st.ml_probabilities) {
+    const entries = Object.entries(st.ml_probabilities).sort((a,b) => b[1] - a[1]);
+    pgGrid.innerHTML = entries.map(([name, p]) => {
+      const pct = (p * 100).toFixed(0);
+      return `<div class="prob-row">
+        <span class="label">${name}</span>
+        <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+        <span class="val">${pct}%</span>
+      </div>`;
+    }).join("");
+  }
+
+  // 5. Header ML Health Pill
+  const mlPill = $("ml-health-pill");
+  if (mlPill) {
+    if (st.ml_fault) {
+      mlPill.className = "status-pill pill-ok";
+      mlPill.innerHTML = '<i class="fa-solid fa-brain"></i> ML: ' + fault.toUpperCase();
+    } else {
+      mlPill.className = "status-pill pill-err";
+      mlPill.innerHTML = '<i class="fa-solid fa-brain"></i> ML: offline';
+    }
+  }
+
+  // 6. Unified View Elements
+  if ($("u-fault-badge")) {
+    const ub = $("u-fault-badge");
+    ub.textContent = fault.toUpperCase();
+    ub.className = "fault-badge-large " +
+      (isHealthy ? "fault-none" : isCrit ? "fault-critical" : "fault-active");
+  }
+  if ($("u-rul-out")) $("u-rul-out").textContent = rulVal != null ? rulVal.toFixed(2) + " h" : "--";
+  if ($("u-conf-out")) $("u-conf-out").textContent = (confVal * 100).toFixed(0) + "%";
+  if ($("u-health-out")) $("u-health-out").textContent = st.health != null ? (st.health * 100).toFixed(0) + "%" : "--";
+  if ($("u-rul-fill")) {
+    const upct = rulVal != null ? clamp((rulVal / 0.5) * 100, 0, 100) : 0;
+    $("u-rul-fill").style.width = upct + "%";
+  }
+  const uGrid = $("u-prob-grid");
+  if (uGrid && st.ml_probabilities) {
+    const entries = Object.entries(st.ml_probabilities).sort((a,b) => b[1] - a[1]);
+    uGrid.innerHTML = entries.slice(0, 5).map(([name, p]) => {
+      const pct = (p * 100).toFixed(0);
+      return `<div class="prob-row">
+        <span class="label">${name}</span>
+        <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+        <span class="val">${pct}%</span>
+      </div>`;
+    }).join("");
+  }
+}
+
+/* =========================================================================
+   TAB NAVIGATION SYSTEM
+   ========================================================================= */
+function initTabs() {
+  const tabs = document.querySelectorAll(".tab-btn");
+  tabs.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.getAttribute("data-tab");
+      tabs.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.querySelectorAll(".view-container").forEach(c => c.classList.remove("active"));
+      const targetEl = $(targetId);
+      if (targetEl) targetEl.classList.add("active");
+
+      // Trigger 3D WebGL resize
+      setTimeout(() => {
+        if (window.dispatchEvent) window.dispatchEvent(new Event("resize"));
+      }, 60);
+    });
+  });
+}
+
+/* =========================================================================
+   PLAYGROUND & UNIFIED CONTROLS INITIALIZATION
+   ========================================================================= */
+function initPlaygroundControls() {
+  // Fault Selector (Playground)
+  const pgFault = $("pg-fault-select");
+  if (pgFault) {
+    pgFault.addEventListener("change", (e) => {
+      const val = e.target.value;
+      const sev = +($("pg-severity") ? $("pg-severity").value : 60);
+      if (val === "none") {
+        sendWsCmd({ cmd: "clear" });
+      } else {
+        sendWsCmd({ cmd: "fault", type: val, severity: sev });
+      }
+    });
+  }
+
+  // Severity Slider (Playground)
+  const pgSev = $("pg-severity");
+  if (pgSev) {
+    pgSev.addEventListener("input", (e) => {
+      const val = e.target.value;
+      if ($("pg-sev-val")) $("pg-sev-val").textContent = val + "%";
+      const currentFault = pgFault ? pgFault.value : "none";
+      if (currentFault !== "none") {
+        sendWsCmd({ cmd: "severity", type: currentFault, severity: +val });
+      }
+    });
+  }
+
+  // Custom EGT Override (Playground)
+  const pgEgt = $("pg-egt-ovr");
+  if (pgEgt) {
+    pgEgt.addEventListener("input", (e) => {
+      const val = +e.target.value;
+      if ($("pg-egt-ovr-val")) $("pg-egt-ovr-val").textContent = val;
+      if (val === 1290) {
+        sendWsCmd({ cmd: "override", sensor: "egt_degf", value: null });
+      } else {
+        sendWsCmd({ cmd: "override", sensor: "egt_degf", value: val });
+      }
+    });
+  }
+
+  // Reset Button (Playground)
+  const pgReset = $("pg-btn-reset");
+  if (pgReset) {
+    pgReset.addEventListener("click", () => {
+      if (pgEgt) { pgEgt.value = 1290; if ($("pg-egt-ovr-val")) $("pg-egt-ovr-val").textContent = "1290"; }
+      if (pgFault) pgFault.value = "none";
+      if (pgSev) { pgSev.value = 60; if ($("pg-sev-val")) $("pg-sev-val").textContent = "60%"; }
+      sendWsCmd({ cmd: "clear" });
+      sendWsCmd({ cmd: "override", sensor: "egt_degf", value: null });
+      try { fetch("http://localhost:5000/reset", { method: "POST" }); } catch(e){}
+    });
+  }
+
+  // Unified Controls Wiring
+  const uFault = $("u-fault-select");
+  if (uFault) {
+    uFault.addEventListener("change", (e) => {
+      const val = e.target.value;
+      const sev = +($("u-severity") ? $("u-severity").value : 60);
+      if (val === "none") sendWsCmd({ cmd: "clear" });
+      else sendWsCmd({ cmd: "fault", type: val, severity: sev });
+    });
+  }
+
+  const uSev = $("u-severity");
+  if (uSev) {
+    uSev.addEventListener("input", (e) => {
+      const val = e.target.value;
+      if ($("u-sev-val")) $("u-sev-val").textContent = val + "%";
+      const cur = uFault ? uFault.value : "none";
+      if (cur !== "none") sendWsCmd({ cmd: "severity", type: cur, severity: +val });
+    });
+  }
+
+  const uEgt = $("u-egt-ovr");
+  if (uEgt) {
+    uEgt.addEventListener("input", (e) => {
+      const val = +e.target.value;
+      if ($("u-egt-val")) $("u-egt-val").textContent = val + " °F";
+      if (val === 1290) sendWsCmd({ cmd: "override", sensor: "egt_degf", value: null });
+      else sendWsCmd({ cmd: "override", sensor: "egt_degf", value: val });
+    });
+  }
+
+  const uReset = $("u-btn-reset");
+  if (uReset) {
+    uReset.addEventListener("click", () => {
+      if (uEgt) { uEgt.value = 1290; if ($("u-egt-val")) $("u-egt-val").textContent = "1290 °F"; }
+      if (uFault) uFault.value = "none";
+      if (uSev) { uSev.value = 60; if ($("u-sev-val")) $("u-sev-val").textContent = "60%"; }
+      sendWsCmd({ cmd: "clear" });
+      sendWsCmd({ cmd: "override", sensor: "egt_degf", value: null });
+      try { fetch("http://localhost:5000/reset", { method: "POST" }); } catch(e){}
+    });
+  }
+
+  const uHeal = $("u-btn-heal");
+  if (uHeal) {
+    uHeal.addEventListener("click", () => {
+      sendWsCmd({ cmd: "heal" });
+    });
+  }
+}
+
 /* =========================================================================
    BOOT
    ========================================================================= */
@@ -784,6 +1047,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const mode = Scene3D.init($("scene"));
   logEvent(mode === "three" ? "3D twin ready" : "WebGL unavailable - 2D fallback", mode === "three" ? "good" : "warn");
   initFaultControls();
+  initTabs();
+  initPlaygroundControls();
   SensorHistory.init();
   connectWS();
 });

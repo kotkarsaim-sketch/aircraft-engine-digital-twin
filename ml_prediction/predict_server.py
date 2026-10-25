@@ -105,6 +105,7 @@ def predict():
         "confidence": conf,
         "probabilities": proba,
         "rul_h": rul,
+        "window_filled": len(RUL_WINDOW) >= meta.get("window", 15),
     })
 
 
@@ -119,4 +120,4 @@ if __name__ == "__main__":
     load_models()
     print("Serving ML prediction playground at http://localhost:5000")
     print("  POST /predict with {sensors: {...}, t: seconds}")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

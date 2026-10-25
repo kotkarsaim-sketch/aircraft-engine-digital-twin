@@ -180,6 +180,7 @@ def call_ml_predict(raw_sensors: dict, t: float) -> dict | None:
         
         # Only call if we have all required sensors
         if len(ml_sensors) != len(ML_SENSOR_KEYS):
+            log.warning("call_ml_predict: sensor count mismatch %d != %d. Keys: %s", len(ml_sensors), len(ML_SENSOR_KEYS), list(raw_sensors.keys()))
             return None
             
         payload = json.dumps({"sensors": ml_sensors, "t": t}).encode()
@@ -189,11 +190,11 @@ def call_ml_predict(raw_sensors: dict, t: float) -> dict | None:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
             if resp.status == 200:
                 return json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
-        log.debug("ML prediction unavailable: %s", e)
+    except Exception as e:
+        log.warning("ML prediction unavailable: %s", e)
     return None
 
 
@@ -391,6 +392,7 @@ class FaultManager:
     def __init__(self) -> None:
         self.active: dict[str, tuple[float, float]] = {}
         # name -> (activation_timestamp, severity 0..1)
+        self.manual_overrides: dict[str, float] = {}
 
     def activate(self, name: str, severity: float = 1.0) -> str | None:
         if name not in FAULT_LIBRARY:
@@ -403,8 +405,9 @@ class FaultManager:
         self.active.pop(name, None)
 
     def clear(self) -> int:
-        n = len(self.active)
+        n = len(self.active) + len(self.manual_overrides)
         self.active.clear()
+        self.manual_overrides.clear()
         return n
 
     def get_durations(self) -> dict[str, float]:
@@ -430,6 +433,8 @@ class FaultManager:
                         tc.set_property(path, value)
                     except TelnetError as exc:
                         log.warning("fault write failed (%s): %s", name, exc)
+        for target, val in self.manual_overrides.items():
+            sim_overrides[target] = val
 
     def summary(self) -> list[dict]:
         """Return list of {name, severity, duration_s} for the snapshot."""
@@ -857,6 +862,16 @@ async def handle_ws_command(msg: dict, fm: FaultManager,
         if name in fm.active:
             t0 = fm.active[name][0]
             fm.active[name] = (t0, sev)
+    elif cmd == "override":
+        sensor = msg.get("sensor")
+        val = msg.get("value")
+        if sensor:
+            if val is None or val == "":
+                fm.manual_overrides.pop(sensor, None)
+                log.info("WS OVERRIDE CLEARED: %s", sensor)
+            else:
+                fm.manual_overrides[sensor] = float(val)
+                log.info("WS OVERRIDE SET: %s = %.1f", sensor, float(val))
     else:
         log.debug("WS unknown command: %s", cmd)
 
@@ -1197,7 +1212,7 @@ async def amain(args: argparse.Namespace) -> None:
                         snapshot.get("sensors", {}),
                         now - t0,
                     ),
-                    timeout=1.5,
+                    timeout=3.0,
                 )
                 if ml_result:
                     snapshot["ml_fault"] = ml_result.get("fault", "unknown")
@@ -1208,7 +1223,7 @@ async def amain(args: argparse.Namespace) -> None:
                 else:
                     snapshot["ml_fault"] = None
             except Exception as ml_exc:
-                log.debug("ML prediction skipped: %s", ml_exc)
+                log.warning("ML prediction skipped: %s", ml_exc)
                 snapshot["ml_fault"] = None
 
             # log status transitions
